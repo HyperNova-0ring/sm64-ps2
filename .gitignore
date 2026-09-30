@@ -76,5 +76,8 @@ sm64config.txt
 # PS2DEV SDK Toolchain
 /ps2dev/
 
+# Work set aside while the renderer is redone
+/src/pc/old_data/
+
 # Claude Code session notes
 CLAUDE.md
