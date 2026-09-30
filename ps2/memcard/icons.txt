@@ -1,0 +1,7 @@
+mc:
+
+download: Saving port savedata.
+upload: Loading port savedata.
+search: Searching memory card in console.
+error: Error I/O memory card.
+intro: Intro cutscene icon.
