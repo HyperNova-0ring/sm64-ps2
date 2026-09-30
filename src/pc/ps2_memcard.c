@@ -202,11 +202,12 @@ static bool create_save(const int port, const u8 *data) {
     mkdir(path, 0777); // may already exist
 
     if (!create_meta(port)) return false;
-    if (!file_write(port, SAVE_FILE, data, PS2_EEPROM_SIZE)) return false;
 
+    // ID first: if the save write fails, the card is still seen as having no save
     u8 id[ID_SIZE];
     make_id(id);
     if (!file_write(port, ID_FILE, id, ID_SIZE)) return false;
+    if (!file_write(port, SAVE_FILE, data, PS2_EEPROM_SIZE)) return false;
 
     memcpy(session_id, id, ID_SIZE);
     session_has_id = true;
@@ -227,8 +228,8 @@ static void snapshot_eeprom(void) {
 static enum Ps2McResult load_save(const int port) {
     memset(io_buf, 0, PS2_EEPROM_SIZE);
 
-    // unreadable save: leave it alone, the game starts with empty files
-    if (file_read(port, SAVE_FILE, io_buf, PS2_EEPROM_SIZE) <= 0) {
+    // unreadable or truncated save: leave it alone, the game starts with empty files
+    if (file_read(port, SAVE_FILE, io_buf, PS2_EEPROM_SIZE) != PS2_EEPROM_SIZE) {
         printf("ps2_memcard: could not read save on port %d\n", port);
         return PS2_MC_RES_ERROR;
     }
