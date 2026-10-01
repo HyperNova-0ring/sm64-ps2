@@ -112,6 +112,7 @@ void unused_deallocate(struct LinkedList *freeList, struct LinkedList *node) {
     node->next = freeList->next;
     freeList->next = node;
 }
+
 /**
  * Remove the given object from the object list that it's currently in, and
  * insert it at the beginning of the free list (singly linked).
@@ -163,7 +164,7 @@ void clear_object_lists(struct ObjectNode *objLists) {
  * This function looks broken, but it appears to attempt to delete the leaf
  * graph nodes under obj and obj's siblings.
  */
-static void unused_delete_leaf_nodes(struct Object *obj) {
+UNUSED static void unused_delete_leaf_nodes(struct Object *obj) {
     struct Object *children;
     struct Object *sibling;
     struct Object *obj0 = obj;
@@ -190,7 +191,7 @@ void unload_object(struct Object *obj) {
     obj->prevObj = NULL;
 
     obj->header.gfx.throwMatrix = NULL;
-    func_803206F8(obj->header.gfx.cameraToObject);
+    stop_sounds_from_source(obj->header.gfx.cameraToObject);
     geo_remove_child(&obj->header.gfx.node);
     geo_add_child(&gObjParentGraphNode, &obj->header.gfx.node);
 

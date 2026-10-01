@@ -285,8 +285,8 @@ static u8 warning_fade_alpha(void) {
 }
 
 static void boot_render(void) {
-    config_gfx_pool();
-    init_render_image();
+    select_gfx_pool();
+    init_rcp();
     clear_frame_buffer(0);
 
     gSPViewport(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(&ui_viewport));

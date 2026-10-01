@@ -14,6 +14,7 @@
 #include "memory.h"
 #include "segment_symbols.h"
 #include "segments.h"
+#include "platform_info.h"
 
 // round up to the next multiple
 #define ALIGN4(val) (((val) + 0x3) & ~0x3)
@@ -24,7 +25,7 @@ struct MainPoolState {
     u32 freeSpace;
     struct MainPoolBlock *listHeadL;
     struct MainPoolBlock *listHeadR;
-    void *prev;
+    struct MainPoolState *prev;
 };
 
 struct MainPoolBlock {
@@ -32,15 +33,15 @@ struct MainPoolBlock {
     struct MainPoolBlock *next;
 };
 
-struct MemoryPool {
-    u32 totalSpace;
-    struct MemoryBlock *firstBlock;
-    struct MemoryBlock *freeList;
-};
-
 struct MemoryBlock {
     struct MemoryBlock *next;
     u32 size;
+};
+
+struct MemoryPool {
+    u32 totalSpace;
+    struct MemoryBlock *firstBlock;
+    struct MemoryBlock freeList;
 };
 
 extern uintptr_t sSegmentTable[32];
@@ -93,8 +94,9 @@ void *virtual_to_segmented(u32 segment, const void *addr) {
 void move_segment_table_to_dmem(void) {
     s32 i;
 
-    for (i = 0; i < 16; i++)
+    for (i = 0; i < 16; i++) {
         gSPSegment(gDisplayListHead++, i, sSegmentTable[i]);
+    }
 }
 #else
 void *segmented_to_virtual(const void *addr) {
@@ -108,6 +110,7 @@ void *virtual_to_segmented(UNUSED u32 segment, const void *addr) {
 void move_segment_table_to_dmem(void) {
 }
 #endif
+
 
 /**
  * Initialize the main memory pool. This pool is conceptually a pair of stacks
@@ -160,7 +163,8 @@ void *main_pool_alloc(u32 size, u32 side) {
 
 /**
  * Free a block of memory that was allocated from the pool. The block must be
- * the most recently allocated block from its end of the pool.
+ * the most recently allocated block from its end of the pool, otherwise all
+ * newer blocks are freed as well.
  * Return the amount of free space left in the pool.
  */
 u32 main_pool_free(void *addr) {
@@ -215,7 +219,7 @@ u32 main_pool_available(void) {
  * in the pool.
  */
 u32 main_pool_push_state(void) {
-    void *prevState = gMainPoolState;
+    struct MainPoolState *prevState = gMainPoolState;
     u32 freeSpace = sPoolFreeSpace;
     struct MainPoolBlock *lhead = sPoolListHeadL;
     struct MainPoolBlock *rhead = sPoolListHeadR;
@@ -253,7 +257,7 @@ static void dma_read(u8 *dest, u8 *srcStart, u8 *srcEnd) {
 
         osPiStartDma(&gDmaIoMesg, OS_MESG_PRI_NORMAL, OS_READ, (uintptr_t) srcStart, dest, copySize,
                      &gDmaMesgQueue);
-        osRecvMesg(&gDmaMesgQueue, &D_80339BEC, OS_MESG_BLOCK);
+        osRecvMesg(&gDmaMesgQueue, &gMainReceivedMesg, OS_MESG_BLOCK);
 
         dest += copySize;
         srcStart += copySize;
@@ -268,7 +272,7 @@ static void dma_read(u8 *dest, u8 *srcStart, u8 *srcEnd) {
  * Perform a DMA read from ROM, allocating space in the memory pool to write to.
  * Return the destination address.
  */
-static void *dynamic_dma_read(u8 *srcStart, u8 *srcEnd, u32 side) {
+static void *dynamic_dma_read(u8 *srcStart, u8 *srcEnd, UNUSED u32 side) {
     void *dest;
     u32 size = ALIGN16(srcEnd - srcStart);
 
@@ -440,13 +444,13 @@ struct MemoryPool *mem_pool_init(u32 size, u32 side) {
     struct MemoryPool *pool = NULL;
 
     size = ALIGN4(size);
-    addr = main_pool_alloc(size + ALIGN16(sizeof(struct MemoryPool)), side);
+    addr = main_pool_alloc(size + sizeof(struct MemoryPool), side);
     if (addr != NULL) {
         pool = (struct MemoryPool *) addr;
 
         pool->totalSpace = size;
-        pool->firstBlock = (struct MemoryBlock *) ((u8 *) addr + ALIGN16(sizeof(struct MemoryPool)));
-        pool->freeList = (struct MemoryBlock *) ((u8 *) addr + ALIGN16(sizeof(struct MemoryPool)));
+        pool->firstBlock = (struct MemoryBlock *) ((u8 *) addr + sizeof(struct MemoryPool));
+        pool->freeList.next = (struct MemoryBlock *) ((u8 *) addr + sizeof(struct MemoryPool));
 
         block = pool->firstBlock;
         block->next = NULL;
@@ -459,7 +463,7 @@ struct MemoryPool *mem_pool_init(u32 size, u32 side) {
  * Allocate from a memory pool. Return NULL if there is not enough space.
  */
 void *mem_pool_alloc(struct MemoryPool *pool, u32 size) {
-    struct MemoryBlock *freeBlock = (struct MemoryBlock *) &pool->freeList;
+    struct MemoryBlock *freeBlock = &pool->freeList;
     void *addr = NULL;
 
     size = ALIGN4(size) + sizeof(struct MemoryBlock);
@@ -487,20 +491,20 @@ void *mem_pool_alloc(struct MemoryPool *pool, u32 size) {
  */
 void mem_pool_free(struct MemoryPool *pool, void *addr) {
     struct MemoryBlock *block = (struct MemoryBlock *) ((u8 *) addr - sizeof(struct MemoryBlock));
-    struct MemoryBlock *freeList = pool->freeList;
+    struct MemoryBlock *freeList = pool->freeList.next;
 
-    if (pool->freeList == NULL) {
-        pool->freeList = block;
+    if (pool->freeList.next == NULL) {
+        pool->freeList.next = block;
         block->next = NULL;
     } else {
-        if (block < pool->freeList) {
-            if ((u8 *) pool->freeList == (u8 *) block + block->size) {
+        if (block < pool->freeList.next) {
+            if ((u8 *) pool->freeList.next == (u8 *) block + block->size) {
                 block->size += freeList->size;
                 block->next = freeList->next;
-                pool->freeList = block;
+                pool->freeList.next = block;
             } else {
-                block->next = pool->freeList;
-                pool->freeList = block;
+                block->next = pool->freeList.next;
+                pool->freeList.next = block;
             }
         } else {
             while (freeList->next != NULL) {
@@ -536,40 +540,37 @@ void *alloc_display_list(u32 size) {
     return ptr;
 }
 
-static struct MarioAnimDmaRelatedThing *func_802789F0(u8 *srcAddr) {
-    struct MarioAnimDmaRelatedThing *sp1C = dynamic_dma_read(srcAddr, srcAddr + sizeof(u32),
+static struct DmaTable *load_dma_table_address(u8 *srcAddr) {
+    struct DmaTable *table = dynamic_dma_read(srcAddr, srcAddr + sizeof(u32),
                                                              MEMORY_POOL_LEFT);
-    u32 size = sizeof(u32) + (sizeof(u8 *) - sizeof(u32)) + sizeof(u8 *) +
-               sp1C->count * sizeof(struct OffsetSizePair);
-    main_pool_free(sp1C);
+    u32 size = table->count * sizeof(struct OffsetSizePair) + 
+        sizeof(struct DmaTable) - sizeof(struct OffsetSizePair);
+    main_pool_free(table);
 
-    sp1C = dynamic_dma_read(srcAddr, srcAddr + size, MEMORY_POOL_LEFT);
-    sp1C->srcAddr = srcAddr;
-    return sp1C;
+    table = dynamic_dma_read(srcAddr, srcAddr + size, MEMORY_POOL_LEFT);
+    table->srcAddr = srcAddr;
+    return table;
 }
 
-void func_80278A78(struct MarioAnimation *a, void *b, struct Animation *target) {
-    if (b != NULL) {
-        a->animDmaTable = func_802789F0(b);
+void setup_dma_table_list(struct DmaHandlerList *list, void *srcAddr, void *buffer) {
+    if (srcAddr != NULL) {
+        list->dmaTable = load_dma_table_address(srcAddr);
     }
-    a->currentAnimAddr = NULL;
-    a->targetAnim = target;
+    list->currentAddr = NULL;
+    list->bufTarget = buffer;
 }
 
-s32 load_patchable_table(struct MarioAnimation *a, u32 index) {
+s32 load_patchable_table(struct DmaHandlerList *list, s32 index) {
     s32 ret = FALSE;
-    struct MarioAnimDmaRelatedThing *sp20 = a->animDmaTable;
-    u8 *addr;
-    u32 size;
+    struct DmaTable *table = list->dmaTable;
 
-    if (index < sp20->count) {
-        do {
-            addr = sp20->srcAddr + sp20->anim[index].offset;
-            size = sp20->anim[index].size;
-        } while (0);
-        if (a->currentAnimAddr != addr) {
-            dma_read((u8 *) a->targetAnim, addr, addr + size);
-            a->currentAnimAddr = addr;
+    if ((u32)index < table->count) {
+        u8 *addr = table->srcAddr + table->anim[index].offset;
+        s32 size = table->anim[index].size;
+
+        if (list->currentAddr != addr) {
+            dma_read(list->bufTarget, addr, addr + size);
+            list->currentAddr = addr;
             ret = TRUE;
         }
     }

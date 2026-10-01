@@ -55,6 +55,7 @@ static s16 sScriptStatus;
 static s32 sRegister;
 static struct LevelCommand *sCurrentCmd;
 
+
 static s32 eval_script_op(s8 op, s32 arg) {
     s32 result = 0;
 
@@ -280,6 +281,7 @@ static void level_cmd_load_mio0(void) {
     sCurrentCmd = CMD_NEXT;
 }
 
+
 static void level_cmd_load_mario_head(void) {
     // TODO: Fix these hardcoded sizes
     void *addr = main_pool_alloc(DOUBLE_SIZE_ON_64_BIT(0xE1000), MEMORY_POOL_LEFT);
@@ -373,11 +375,7 @@ static void level_cmd_end_area(void) {
 
 static void level_cmd_load_model_from_dl(void) {
     s16 val1 = CMD_GET(s16, 2) & 0x0FFF;
-#ifdef VERSION_EU
-    s16 val2 = (CMD_GET(s16, 2) & 0xFFFF) >> 12;
-#else
-    s16 val2 = CMD_GET(u16, 2) >> 12;
-#endif
+    s16 val2 = ((u16)CMD_GET(s16, 2)) >> 12;
     void *val3 = CMD_GET(void *, 4);
 
     if (val1 < 256) {
@@ -406,11 +404,7 @@ static void level_cmd_23(void) {
     } arg2;
 
     s16 model = CMD_GET(s16, 2) & 0x0FFF;
-#ifdef VERSION_EU
-    s16 arg0H = (CMD_GET(s16, 2) & 0xFFFF) >> 12;
-#else
-    s16 arg0H = CMD_GET(u16, 2) >> 12;
-#endif
+    s16 arg0H = ((u16)CMD_GET(s16, 2)) >> 12;
     void *arg1 = CMD_GET(void *, 4);
     // load an f32, but using an integer load instruction for some reason (hence the union)
     arg2.i = CMD_GET(s32, 8);
@@ -648,7 +642,7 @@ static void level_cmd_load_area(void) {
     s16 areaIndex = CMD_GET(u8, 2);
     UNUSED void *unused = (u8 *) sCurrentCmd + 4;
 
-    func_80320890();
+    stop_sounds_in_continuous_banks();
     load_area(areaIndex);
 
     sCurrentCmd = CMD_NEXT;
@@ -835,7 +829,7 @@ struct LevelCommand *level_script_execute(struct LevelCommand *cmd) {
     }
 
     profiler_log_thread5_time(LEVEL_SCRIPT_EXECUTE);
-    init_render_image();
+    init_rcp();
     render_game();
     end_master_display_list();
     alloc_display_list(0);

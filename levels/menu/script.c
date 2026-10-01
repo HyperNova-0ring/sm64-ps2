@@ -47,7 +47,7 @@
     \
     FREE_LEVEL_POOL(), \
     LOAD_AREA(/*area*/ 1), \
-    SET_MENU_MUSIC(/*seq*/ 0x0021)
+    SET_MENU_MUSIC(/*seq*/ SEQ_MENU_FILE_SELECT)
 
 #ifdef TARGET_PS2
 extern const LevelScript level_main_menu_rescan[];

@@ -79,5 +79,11 @@ sm64config.txt
 # Work set aside while the renderer is redone
 /src/pc/old_data/
 
+# Temporary Documentation
+/src/pc/temp_docs/
+
+# Temporary Repos
+/src/pc/temp_repos/
+
 # Claude Code session notes
 CLAUDE.md

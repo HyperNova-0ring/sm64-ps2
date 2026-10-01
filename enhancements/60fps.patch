@@ -1,6 +1,6 @@
 --- a/include/types.h
 +++ b/include/types.h
-@@ -118,6 +118,10 @@
+@@ -119,6 +119,10 @@ struct AnimInfo
      /*0x0A 0x42*/ u16 animTimer;
      /*0x0C 0x44*/ s32 animFrameAccelAssist;
      /*0x10 0x48*/ s32 animAccel;
@@ -11,8 +11,8 @@
  };
  
  struct GraphNodeObject
-@@ -128,11 +132,22 @@
-     /*0x19*/ s8 unk19;
+@@ -129,11 +133,22 @@ struct GraphNodeObject
+     /*0x19*/ s8 activeAreaIndex;
      /*0x1A*/ Vec3s angle;
      /*0x20*/ Vec3f pos;
 +    Vec3s prevAngle;
@@ -23,7 +23,7 @@
      /*0x2C*/ Vec3f scale;
 +    Vec3f prevScale;
 +    u32 prevScaleTimestamp;
-     /*0x38*/ struct GraphNodeObject_sub unk38;
+     /*0x38*/ struct AnimInfo animInfo;
      /*0x4C*/ struct SpawnInfo *unk4C;
      /*0x50*/ Mat4 *throwMatrix; // matrix ptr
 +    Mat4 prevThrowMatrix;
@@ -34,7 +34,7 @@
  };
  
  struct ObjectNode
-@@ -243,6 +258,10 @@
+@@ -244,6 +259,10 @@ struct Surface
      } normal;
      /*0x28*/ f32 originOffset;
      /*0x2C*/ struct Object *object;
@@ -47,7 +47,7 @@
  struct MarioBodyState
 --- a/src/engine/graph_node.h
 +++ b/src/engine/graph_node.h
-@@ -109,6 +109,8 @@
+@@ -109,6 +109,8 @@ struct GraphNodePerspective
      /*0x1C*/ f32 fov;   // horizontal field of view in degrees
      /*0x20*/ s16 near;  // near clipping plane
      /*0x22*/ s16 far;   // far clipping plane
@@ -56,7 +56,7 @@
  };
  
  /** An entry in the master list. It is a linked list of display lists
-@@ -117,7 +119,9 @@
+@@ -117,7 +119,9 @@ struct GraphNodePerspective
  struct DisplayListNode
  {
      Mtx *transform;
@@ -66,7 +66,7 @@
      struct DisplayListNode *next;
  };
  
-@@ -184,7 +188,11 @@
+@@ -184,7 +188,11 @@ struct GraphNodeCamera
      } config;
      /*0x1C*/ Vec3f pos;
      /*0x28*/ Vec3f focus;
@@ -78,7 +78,7 @@
      /*0x38*/ s16 roll; // roll in look at matrix. Doesn't account for light direction unlike rollScreen.
      /*0x3A*/ s16 rollScreen; // rolls screen while keeping the light direction consistent
  };
-@@ -225,7 +233,8 @@
+@@ -225,7 +233,8 @@ struct GraphNodeRotation
      /*0x00*/ struct GraphNode node;
      /*0x14*/ void *displayList;
      /*0x18*/ Vec3s rotation;
@@ -88,7 +88,7 @@
  };
  
  /** GraphNode part that transforms itself and its children based on animation
-@@ -322,6 +331,9 @@
+@@ -322,6 +331,9 @@ struct GraphNodeBackground
      /*0x00*/ struct FnGraphNode fnNode;
      /*0x18*/ s32 unused;
      /*0x1C*/ s32 background; // background ID, or rgba5551 color if fnNode.func is null
@@ -98,7 +98,7 @@
  };
  
  /** Renders the object that Mario is holding.
-@@ -332,6 +344,8 @@
+@@ -332,6 +344,8 @@ struct GraphNodeHeldObject
      /*0x18*/ s32 playerIndex;
      /*0x1C*/ struct Object *objNode;
      /*0x20*/ Vec3s translation;
@@ -117,7 +117,7 @@
  
  /**************************************************
   *                      WALLS                     *
-@@ -393,26 +394,44 @@
+@@ -393,26 +394,44 @@ f32 find_floor_height_and_data(f32 xPos, f32 yPos, f32 zPos, struct FloorGeometr
      return floorHeight;
  }
  
@@ -163,7 +163,7 @@
  
          // Check that the point is within the triangle bounds.
          if ((z1 - z) * (x2 - x1) - (x1 - x) * (z2 - z1) < 0) {
-@@ -422,6 +441,10 @@
+@@ -422,6 +441,10 @@ static struct Surface *find_floor_from_list(struct SurfaceNode *surfaceNode, s32
          // To slightly save on computation time, set this later.
          x3 = surf->vertex3[0];
          z3 = surf->vertex3[2];
@@ -174,7 +174,7 @@
  
          if ((z2 - z) * (x3 - x2) - (x2 - x) * (z3 - z2) < 0) {
              continue;
-@@ -441,10 +464,30 @@
+@@ -441,10 +464,30 @@ static struct Surface *find_floor_from_list(struct SurfaceNode *surfaceNode, s32
              continue;
          }
  
@@ -209,7 +209,7 @@
  
          // If a wall, ignore it. Likely a remnant, should never occur.
          if (ny == 0.0f) {
-@@ -459,6 +502,15 @@
+@@ -459,6 +502,15 @@ static struct Surface *find_floor_from_list(struct SurfaceNode *surfaceNode, s32
          }
  
          *pheight = height;
@@ -243,7 +243,7 @@
  
  s32 unused8038BE90;
  
-@@ -359,6 +361,11 @@
+@@ -359,6 +361,11 @@ static struct Surface *read_surface_data(s16 *vertexData, s16 **vertexIndices) {
  
      surface = alloc_surface();
  
@@ -257,7 +257,7 @@
      surface->vertex3[0] = x3;
 --- a/src/game/camera.c
 +++ b/src/game/camera.c
-@@ -483,6 +483,10 @@
+@@ -487,6 +487,10 @@ CameraTransition sModeTransitions[] = {
  extern u8 sDanceCutsceneIndexTable[][4];
  extern u8 sZoomOutAreaMasks[];
  
@@ -268,7 +268,7 @@
  /**
   * Starts a camera shake triggered by an interaction
   */
-@@ -5502,6 +5506,7 @@
+@@ -5521,6 +5525,7 @@ s32 set_camera_mode_fixed(struct Camera *c, s16 x, s16 y, s16 z) {
          c->mode = CAMERA_MODE_FIXED;
          vec3f_set(c->pos, sFixedModeBasePosition[0], sMarioCamState->pos[1],
                    sFixedModeBasePosition[2]);
@@ -276,7 +276,7 @@
      }
      return basePosSet;
  }
-@@ -5652,6 +5657,7 @@
+@@ -5671,6 +5676,7 @@ BAD_RETURN(s32) cam_rr_enter_building_side(struct Camera *c) {
      if (c->mode != CAMERA_MODE_FIXED) {
          sStatusFlags &= ~CAM_FLAG_SMOOTH_MOVEMENT;
          c->mode = CAMERA_MODE_FIXED;
@@ -284,7 +284,7 @@
      }
  }
  
-@@ -5847,6 +5853,7 @@
+@@ -5866,6 +5872,7 @@ BAD_RETURN(s32) cam_castle_enter_lobby(struct Camera *c) {
          sStatusFlags &= ~CAM_FLAG_SMOOTH_MOVEMENT;
          set_fixed_cam_axis_sa_lobby(c->mode);
          c->mode = CAMERA_MODE_FIXED;
@@ -292,7 +292,7 @@
      }
  }
  
-@@ -7214,6 +7221,7 @@
+@@ -7230,6 +7237,7 @@ BAD_RETURN(s32) cutscene_unused_loop(UNUSED struct Camera *c) {
  BAD_RETURN(s32) cutscene_ending_mario_fall_start(struct Camera *c) {
      vec3f_set(c->focus, -26.f, 0.f, -137.f);
      vec3f_set(c->pos, 165.f, 4725.f, 324.f);
@@ -300,7 +300,7 @@
  }
  
  /**
-@@ -7246,6 +7254,7 @@
+@@ -7262,6 +7270,7 @@ BAD_RETURN(s32) cutscene_ending_mario_fall(struct Camera *c) {
  BAD_RETURN(s32) cutscene_ending_mario_land_closeup(struct Camera *c) {
      vec3f_set(c->focus, 85.f, 826.f, 250.f);
      vec3f_set(c->pos, -51.f, 988.f, -202.f);
@@ -308,7 +308,7 @@
      player2_rotate_cam(c, -0x2000, 0x2000, -0x2000, 0x2000);
  }
  
-@@ -7255,6 +7264,7 @@
+@@ -7271,6 +7280,7 @@ BAD_RETURN(s32) cutscene_ending_mario_land_closeup(struct Camera *c) {
  BAD_RETURN(s32) cutscene_ending_reset_spline(UNUSED struct Camera *c) {
      sCutsceneVars[9].point[0] = 0.f;
      cutscene_reset_spline();
@@ -316,7 +316,7 @@
  }
  
  /**
-@@ -7290,6 +7300,7 @@
+@@ -7306,6 +7316,7 @@ BAD_RETURN(s32) cutscene_ending_peach_appear_closeup(struct Camera *c) {
      vec3f_set(c->pos, 179.f, 2463.f, -1216.f);
      c->pos[1] = gCutsceneFocus->oPosY + 35.f;
      vec3f_set(c->focus, gCutsceneFocus->oPosX, gCutsceneFocus->oPosY + 125.f, gCutsceneFocus->oPosZ);
@@ -324,7 +324,7 @@
  }
  
  /**
-@@ -7308,6 +7319,7 @@
+@@ -7324,6 +7335,7 @@ BAD_RETURN(s32) cutscene_ending_peach_appears(struct Camera *c) {
  BAD_RETURN(s32) cutscene_ending_peach_descends_start(UNUSED struct Camera *c) {
      cutscene_reset_spline();
      sCutsceneVars[2].point[1] = 150.f;
@@ -332,7 +332,7 @@
  }
  
  /**
-@@ -7394,6 +7406,7 @@
+@@ -7410,6 +7422,7 @@ BAD_RETURN(s32) cutscene_ending_peach_wakeup(struct Camera *c) {
  BAD_RETURN(s32) cutscene_ending_dialog(struct Camera *c) {
      vec3f_set(c->focus, 11.f, 983.f, -1273.f);
      vec3f_set(c->pos, -473.f, 970.f, -1152.f);
@@ -340,7 +340,7 @@
      player2_rotate_cam(c, -0x800, 0x2000, -0x2000, 0x2000);
  }
  
-@@ -7404,6 +7417,7 @@
+@@ -7420,6 +7433,7 @@ BAD_RETURN(s32) cutscene_ending_kiss_closeup(struct Camera *c) {
      set_fov_function(CAM_FOV_SET_29);
      vec3f_set(c->focus, 350.f, 1034.f, -1216.f);
      vec3f_set(c->pos, -149.f, 1021.f, -1216.f);
@@ -348,7 +348,7 @@
  }
  
  /**
-@@ -7439,6 +7453,7 @@
+@@ -7455,6 +7469,7 @@ BAD_RETURN(s32) cutscene_ending_kiss(struct Camera *c) {
  BAD_RETURN(s32) cutscene_ending_look_at_sky(struct Camera *c) {
      move_point_along_spline(c->focus, sEndingLookAtSkyFocus, &sCutsceneSplineSegment, &sCutsceneSplineSegmentProgress);
      vec3f_set(c->pos, 699.f, 1680.f, -703.f);
@@ -356,7 +356,7 @@
  }
  
  /**
-@@ -10260,6 +10275,7 @@
+@@ -10276,6 +10291,7 @@ BAD_RETURN(s32) cutscene_door_start(struct Camera *c) {
  BAD_RETURN(s32) cutscene_door_fix_cam(struct Camera *c) {
      vec3f_copy(c->pos, sCutsceneVars[0].point);
      vec3f_copy(c->focus, sCutsceneVars[1].point);
@@ -364,7 +364,7 @@
  }
  
  /**
-@@ -10293,6 +10309,7 @@
+@@ -10309,6 +10325,7 @@ BAD_RETURN(s32) cutscene_door_move_behind_mario(struct Camera *c) {
      }
  
      offset_rotated(c->pos, sMarioCamState->pos, camOffset, sCutsceneVars[0].angle);
@@ -374,7 +374,7 @@
  /**
 --- a/src/game/camera.h
 +++ b/src/game/camera.h
-@@ -654,6 +654,8 @@
+@@ -654,6 +654,8 @@ struct LakituState
      /// Mario's action from the previous frame. Only used to determine if Mario just finished a dive.
      /*0xB8*/ u32 lastFrameAction;
      /*0xBC*/ s16 unused;
@@ -393,7 +393,7 @@
  #include "engine/behavior_script.h"
  #include "audio/external.h"
  #include "textures.h"
-@@ -35,6 +36,20 @@
+@@ -35,6 +36,20 @@ Vtx_t gBubbleTempVtx[3] = {
      { { 0, 0, 0 }, 0, { -498, 964 }, { 0xFF, 0xFF, 0xFF, 0xFF } },
  };
  
@@ -414,7 +414,7 @@
  /**
   * Check whether the particle with the given index is
   * laterally within distance of point (x, z). Used to
-@@ -241,6 +256,7 @@
+@@ -241,6 +256,7 @@ void envfx_update_whirlpool(void) {
              (gEnvFxBuffer + i)->yPos = (i + gEnvFxBuffer)->bubbleY;
              (gEnvFxBuffer + i)->unusedBubbleVar = 0;
              (gEnvFxBuffer + i)->isAlive = 1;
@@ -422,7 +422,7 @@
  
              envfx_rotate_around_whirlpool(&(gEnvFxBuffer + i)->xPos, &(gEnvFxBuffer + i)->yPos,
                                            &(gEnvFxBuffer + i)->zPos);
-@@ -299,6 +315,7 @@
+@@ -299,6 +315,7 @@ void envfx_update_jetstream(void) {
                  + coss((gEnvFxBuffer + i)->angleAndDist[0]) * (gEnvFxBuffer + i)->angleAndDist[1];
              (gEnvFxBuffer + i)->yPos =
                  gEnvFxBubbleConfig[ENVFX_STATE_SRC_Y] + (random_float() * 400.0f - 200.0f);
@@ -430,7 +430,7 @@
          } else {
              (gEnvFxBuffer + i)->angleAndDist[1] += 10;
              (gEnvFxBuffer + i)->xPos += sins((gEnvFxBuffer + i)->angleAndDist[0]) * 10.0f;
-@@ -506,6 +523,12 @@
+@@ -472,6 +489,12 @@ Gfx *envfx_update_bubble_particles(s32 mode, UNUSED Vec3s marioPos, Vec3s camFro
      Vec3s vertex1;
      Vec3s vertex2;
      Vec3s vertex3;
@@ -443,7 +443,7 @@
  
      Gfx *gfxStart;
  
-@@ -521,18 +544,52 @@
+@@ -487,18 +510,52 @@ Gfx *envfx_update_bubble_particles(s32 mode, UNUSED Vec3s marioPos, Vec3s camFro
      envfx_bubbles_update_switch(mode, camTo, vertex1, vertex2, vertex3);
      rotate_triangle_vertices(vertex1, vertex2, vertex3, pitch, yaw);
  
@@ -499,7 +499,7 @@
      gSPEndDisplayList(sGfxCursor++);
 --- a/src/game/envfx_snow.c
 +++ b/src/game/envfx_snow.c
-@@ -54,6 +54,26 @@
+@@ -55,6 +55,26 @@ extern void *tiny_bubble_dl_0B006AB0;
  extern void *tiny_bubble_dl_0B006A50;
  extern void *tiny_bubble_dl_0B006CD8;
  
@@ -526,7 +526,7 @@
  /**
   * Initialize snow particles by allocating a buffer for storing their state
   * and setting a start amount.
-@@ -217,6 +237,7 @@
+@@ -218,6 +238,7 @@ void envfx_update_snow_normal(s32 snowCylinderX, s32 snowCylinderY, s32 snowCyli
                  400.0f * random_float() - 200.0f + snowCylinderZ + (s16)(deltaZ * 2);
              (gEnvFxBuffer + i)->yPos = 200.0f * random_float() + snowCylinderY;
              (gEnvFxBuffer + i)->isAlive = 1;
@@ -534,7 +534,7 @@
          } else {
              (gEnvFxBuffer + i)->xPos += random_float() * 2 - 1.0f + (s16)(deltaX / 1.2);
              (gEnvFxBuffer + i)->yPos -= 2 -(s16)(deltaY * 0.8);
-@@ -251,6 +272,7 @@
+@@ -252,6 +273,7 @@ void envfx_update_snow_blizzard(s32 snowCylinderX, s32 snowCylinderY, s32 snowCy
                  400.0f * random_float() - 200.0f + snowCylinderZ + (s16)(deltaZ * 2);
              (gEnvFxBuffer + i)->yPos = 400.0f * random_float() - 200.0f + snowCylinderY;
              (gEnvFxBuffer + i)->isAlive = 1;
@@ -542,7 +542,7 @@
          } else {
              (gEnvFxBuffer + i)->xPos += random_float() * 2 - 1.0f + (s16)(deltaX / 1.2) + 20.0f;
              (gEnvFxBuffer + i)->yPos -= 5 -(s16)(deltaY * 0.8);
-@@ -294,6 +316,7 @@
+@@ -295,6 +317,7 @@ void envfx_update_snow_water(s32 snowCylinderX, s32 snowCylinderY, s32 snowCylin
              (gEnvFxBuffer + i)->zPos = 400.0f * random_float() - 200.0f + snowCylinderZ;
              (gEnvFxBuffer + i)->yPos = 400.0f * random_float() - 200.0f + snowCylinderY;
              (gEnvFxBuffer + i)->isAlive = 1;
@@ -550,17 +550,17 @@
          }
      }
  }
-@@ -346,6 +369,8 @@
+@@ -345,6 +368,8 @@ void rotate_triangle_vertices(Vec3s vertex1, Vec3s vertex2, Vec3s vertex3, s16 p
  void append_snowflake_vertex_buffer(Gfx *gfx, s32 index, Vec3s vertex1, Vec3s vertex2, Vec3s vertex3) {
      s32 i = 0;
      Vtx *vertBuf = (Vtx *) alloc_display_list(15 * sizeof(Vtx));
 +    Vtx *vertBufInterpolated = (Vtx *) alloc_display_list(15 * sizeof(Vtx));
 +    Vtx *v;
- #ifdef VERSION_EU
-     Vtx *p;
- #endif
-@@ -395,7 +420,23 @@
- #endif
+ 
+     if (vertBuf == NULL) {
+         return;
+@@ -367,7 +392,23 @@ void append_snowflake_vertex_buffer(Gfx *gfx, s32 index, Vec3s vertex1, Vec3s ve
+         (vertBuf + i + 2)->v.ob[2] = (gEnvFxBuffer + (index + i / 3))->zPos + vertex3[2];
      }
  
 -    gSPVertex(gfx, VIRTUAL_TO_PHYSICAL(vertBuf), 15, 0);
@@ -584,7 +584,7 @@
  }
  
  /**
-@@ -479,6 +520,8 @@
+@@ -451,6 +492,8 @@ Gfx *envfx_update_snow(s32 snowMode, Vec3s marioPos, Vec3s camFrom, Vec3s camTo)
          gSP1Triangle(gfx++, 9, 10, 11, 0);
          gSP1Triangle(gfx++, 12, 13, 14, 0);
      }
@@ -595,7 +595,7 @@
  
 --- a/src/game/envfx_snow.h
 +++ b/src/game/envfx_snow.h
-@@ -25,7 +25,8 @@
+@@ -25,7 +25,8 @@ struct EnvFxParticle {
      s32 angleAndDist[2]; // for whirpools, [0] = angle from center, [1] = distance from center
      s32 unusedBubbleVar; // set to zero for bubbles when respawning, never used elsewhere
      s32 bubbleY; // for Bubbles, yPos is always set to this
@@ -611,14 +611,14 @@
  #include "types.h"
  #include "memory.h"
  
--#define GFX_POOL_SIZE 6400
-+#define GFX_POOL_SIZE 64000
+-#define GFX_POOL_SIZE 6400 // Size of how large the master display list (gDisplayListHead) can be
++#define GFX_POOL_SIZE 64000 // Size of how large the master display list (gDisplayListHead) can be
  
  struct GfxPool {
      Gfx buffer[GFX_POOL_SIZE];
 --- a/src/game/hud.c
 +++ b/src/game/hud.c
-@@ -57,6 +57,20 @@
+@@ -57,6 +57,20 @@ UNUSED static struct UnusedHUDStruct sUnusedHUDValues = { 0x00, 0x0A, 0x00 };
  
  static struct CameraHUD sCameraHUD = { CAM_STATUS_NONE };
  
@@ -639,7 +639,7 @@
  /**
   * Renders a rgba16 16x16 glyph texture from a table list.
   */
-@@ -109,6 +123,7 @@
+@@ -109,6 +123,7 @@ void render_power_meter_health_segment(s16 numHealthWedges) {
   */
  void render_dl_power_meter(s16 numHealthWedges) {
      Mtx *mtx;
@@ -647,7 +647,7 @@
  
      mtx = alloc_display_list(sizeof(Mtx));
  
-@@ -116,7 +131,15 @@
+@@ -116,7 +131,15 @@ void render_dl_power_meter(s16 numHealthWedges) {
          return;
      }
  
@@ -666,9 +666,9 @@
                G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_PUSH);
 --- a/src/game/ingame_menu.c
 +++ b/src/game/ingame_menu.c
-@@ -111,6 +111,41 @@
+@@ -111,6 +111,41 @@ u8 gMenuHoldKeyIndex = 0;
  u8 gMenuHoldKeyTimer = 0;
- s32 gDialogResponse = 0;
+ s32 gDialogResponse = DIALOG_RESPONSE_NONE;
  
 +static Gfx *sInterpolatedDialogOffsetPos;
 +static f32 sInterpolatedDialogOffset;
@@ -708,7 +708,7 @@
  
  void create_dl_identity_matrix(void) {
      Mtx *matrix = (Mtx *) alloc_display_list(sizeof(Mtx));
-@@ -947,6 +982,14 @@
+@@ -945,6 +980,14 @@ void render_dialog_box_type(struct DialogEntry *dialog, s8 linesPerBox) {
      switch (gDialogBoxType) {
          case DIALOG_TYPE_ROTATE: // Renders a dialog black box with zoom and rotation
              if (gDialogBoxState == DIALOG_STATE_OPENING || gDialogBoxState == DIALOG_STATE_CLOSING) {
@@ -723,7 +723,7 @@
                  create_dl_scale_matrix(MENU_MTX_NOPUSH, 1.0 / gDialogBoxScale, 1.0 / gDialogBoxScale, 1.0f);
                  // convert the speed into angle
                  create_dl_rotation_matrix(MENU_MTX_NOPUSH, gDialogBoxOpenTimer * 4.0f, 0, 0, 1.0f);
-@@ -955,6 +998,12 @@
+@@ -953,6 +996,12 @@ void render_dialog_box_type(struct DialogEntry *dialog, s8 linesPerBox) {
              break;
          case DIALOG_TYPE_ZOOM: // Renders a dialog white box with zoom
              if (gDialogBoxState == DIALOG_STATE_OPENING || gDialogBoxState == DIALOG_STATE_CLOSING) {
@@ -736,7 +736,7 @@
                  create_dl_translation_matrix(MENU_MTX_NOPUSH, 65.0 - (65.0 / gDialogBoxScale),
                                                (40.0 / gDialogBoxScale) - 40, 0);
                  create_dl_scale_matrix(MENU_MTX_NOPUSH, 1.0 / gDialogBoxScale, 1.0 / gDialogBoxScale, 1.0f);
-@@ -1237,6 +1286,8 @@
+@@ -1235,6 +1284,8 @@ void handle_dialog_text_and_pages(s8 colorMode, struct DialogEntry *dialog, s8 l
  #ifdef VERSION_EU
          gDialogY -= gDialogScrollOffsetY;
  #else
@@ -747,7 +747,7 @@
      }
 --- a/src/game/level_geo.c
 +++ b/src/game/level_geo.c
-@@ -34,12 +34,16 @@
+@@ -34,12 +34,16 @@ Gfx *geo_envfx_main(s32 callContext, struct GraphNode *node, Mat4 mtxf) {
              vec3f_to_vec3s(marioPos, gPlayerCameraState->pos);
              particleList = envfx_update_particles(snowMode, marioPos, camTo, camFrom);
              if (particleList != NULL) {
@@ -766,7 +766,7 @@
              SET_HIGH_U16_OF_32(*params, gAreaUpdateCounter);
 --- a/src/game/object_helpers.c
 +++ b/src/game/object_helpers.c
-@@ -1554,6 +1554,7 @@
+@@ -1544,6 +1544,7 @@ void cur_obj_set_pos_to_home(void) {
      o->oPosX = o->oHomeX;
      o->oPosY = o->oHomeY;
      o->oPosZ = o->oHomeZ;
@@ -776,7 +776,7 @@
  void cur_obj_set_pos_to_home_and_stop(void) {
 --- a/src/game/paintings.c
 +++ b/src/game/paintings.c
-@@ -189,6 +189,32 @@
+@@ -189,6 +189,32 @@ struct Painting **sPaintingGroups[] = {
  s16 gPaintingUpdateCounter = 1;
  s16 gLastPaintingUpdateCounter = 0;
  
@@ -809,7 +809,7 @@
  /**
   * Stop paintings in paintingGroup from rippling if their id is different from *idptr.
   */
-@@ -890,6 +916,23 @@
+@@ -899,6 +925,23 @@ Gfx *render_painting(u8 *img, s16 tWidth, s16 tHeight, s16 *textureMap, s16 mapV
          gSP1Triangle(gfx++, group * 3, group * 3 + 1, group * 3 + 2, 0);
      }
  
@@ -833,7 +833,7 @@
      gSPEndDisplayList(gfx);
      return dlist;
  }
-@@ -954,6 +997,7 @@
+@@ -963,6 +1006,7 @@ Gfx *painting_ripple_image(struct Painting *painting) {
          meshTris = textureMap[meshVerts * 3 + 1];
          gSPDisplayList(gfx++, render_painting(textures[i], tWidth, tHeight, textureMap, meshVerts, meshTris, painting->alpha));
      }
@@ -841,7 +841,7 @@
  
      // Update the ripple, may automatically reset the painting's state.
      painting_update_ripple_state(painting);
-@@ -991,6 +1035,7 @@
+@@ -1000,6 +1044,7 @@ Gfx *painting_ripple_env_mapped(struct Painting *painting) {
      meshVerts = textureMap[0];
      meshTris = textureMap[meshVerts * 3 + 1];
      gSPDisplayList(gfx++, render_painting(tArray[0], tWidth, tHeight, textureMap, meshVerts, meshTris, painting->alpha));
@@ -860,7 +860,7 @@
  
  /**
   * Animation nodes have state in global variables, so this struct captures
-@@ -52,6 +54,7 @@
+@@ -52,6 +54,7 @@ struct GeoAnimState {
      /*0x04*/ f32 translationMultiplier;
      /*0x08*/ u16 *attribute;
      /*0x0C*/ s16 *data;
@@ -868,7 +868,7 @@
  };
  
  // For some reason, this is a GeoAnimState struct, but the current state consists
-@@ -61,6 +64,7 @@
+@@ -61,6 +64,7 @@ struct GeoAnimState gGeoTempState;
  u8 gCurAnimType;
  u8 gCurAnimEnabled;
  s16 gCurrAnimFrame;
@@ -876,7 +876,7 @@
  f32 gCurAnimTranslationMultiplier;
  u16 *gCurrAnimAttribute;
  s16 *gCurAnimData;
-@@ -129,6 +133,46 @@
+@@ -129,6 +133,46 @@ u16 gAreaUpdateCounter = 0;
  LookAt lookAt;
  #endif
  
@@ -923,7 +923,7 @@
  /**
   * Process a master list node.
   */
-@@ -156,9 +200,14 @@
+@@ -156,9 +200,14 @@ static void geo_process_master_list_sub(struct GraphNodeMasterList *node) {
          if ((currList = node->listHeads[i]) != NULL) {
              gDPSetRenderMode(gDisplayListHead++, modeList->modes[i], mode2List->modes[i]);
              while (currList != NULL) {
@@ -940,7 +940,7 @@
                  currList = currList->next;
              }
          }
-@@ -174,7 +223,7 @@
+@@ -174,7 +223,7 @@ static void geo_process_master_list_sub(struct GraphNodeMasterList *node) {
   * parameter. Look at the RenderModeContainer struct to see the corresponding
   * render modes of layers.
   */
@@ -949,7 +949,7 @@
  
  #ifdef F3DEX_GBI_2
      gSPLookAt(gDisplayListHead++, &lookAt);
-@@ -184,7 +233,9 @@
+@@ -184,7 +233,9 @@ static void geo_append_display_list(void *displayList, s16 layer) {
              alloc_only_pool_alloc(gDisplayListHeap, sizeof(struct DisplayListNode));
  
          listNode->transform = gMatStackFixed[gMatStackIndex];
@@ -959,7 +959,7 @@
          listNode->next = 0;
          if (gCurGraphNodeMasterList->listHeads[layer] == 0) {
              gCurGraphNodeMasterList->listHeads[layer] = listNode;
-@@ -195,6 +246,10 @@
+@@ -195,6 +246,10 @@ static void geo_append_display_list(void *displayList, s16 layer) {
      }
  }
  
@@ -970,7 +970,7 @@
  /**
   * Process the master list node.
   */
-@@ -241,7 +296,9 @@
+@@ -241,7 +296,9 @@ static void geo_process_perspective(struct GraphNodePerspective *node) {
      }
      if (node->fnNode.node.children != NULL) {
          u16 perspNorm;
@@ -980,7 +980,7 @@
  
  #ifdef VERSION_EU
          f32 aspect = ((f32) gCurGraphNodeRoot->width / (f32) gCurGraphNodeRoot->height) * 1.1f;
-@@ -250,9 +307,23 @@
+@@ -250,9 +307,23 @@ static void geo_process_perspective(struct GraphNodePerspective *node) {
  #endif
  
          guPerspective(mtx, &perspNorm, node->fov, aspect, node->near, node->far, 1.0f);
@@ -1006,7 +1006,7 @@
  
          gCurGraphNodeCamFrustum = node;
          geo_process_node_and_siblings(node->fnNode.node.children);
-@@ -309,6 +380,39 @@
+@@ -309,6 +380,39 @@ static void geo_process_switch(struct GraphNodeSwitchCase *node) {
      }
  }
  
@@ -1046,7 +1046,7 @@
  /**
   * Process a camera node.
   */
-@@ -316,6 +420,9 @@
+@@ -316,6 +420,9 @@ static void geo_process_camera(struct GraphNodeCamera *node) {
      Mat4 cameraTransform;
      Mtx *rollMtx = alloc_display_list(sizeof(*rollMtx));
      Mtx *mtx = alloc_display_list(sizeof(*mtx));
@@ -1056,7 +1056,7 @@
  
      if (node->fnNode.func != NULL) {
          node->fnNode.func(GEO_CONTEXT_RENDER, &node->fnNode.node, gMatStack[gMatStackIndex]);
-@@ -326,12 +433,40 @@
+@@ -326,12 +433,40 @@ static void geo_process_camera(struct GraphNodeCamera *node) {
  
      mtxf_lookat(cameraTransform, node->pos, node->focus, node->roll);
      mtxf_mul(gMatStack[gMatStackIndex + 1], cameraTransform, gMatStack[gMatStackIndex]);
@@ -1097,7 +1097,7 @@
          geo_process_node_and_siblings(node->fnNode.node.children);
          gCurGraphNodeCamera = NULL;
      }
-@@ -348,13 +483,17 @@
+@@ -348,13 +483,17 @@ static void geo_process_translation_rotation(struct GraphNodeTranslationRotation
      Mat4 mtxf;
      Vec3f translation;
      Mtx *mtx = alloc_display_list(sizeof(*mtx));
@@ -1115,7 +1115,7 @@
      if (node->displayList != NULL) {
          geo_append_display_list(node->displayList, node->node.flags >> 8);
      }
-@@ -373,13 +512,17 @@
+@@ -373,13 +512,17 @@ static void geo_process_translation(struct GraphNodeTranslation *node) {
      Mat4 mtxf;
      Vec3f translation;
      Mtx *mtx = alloc_display_list(sizeof(*mtx));
@@ -1133,7 +1133,7 @@
      if (node->displayList != NULL) {
          geo_append_display_list(node->displayList, node->node.flags >> 8);
      }
-@@ -397,12 +540,23 @@
+@@ -397,12 +540,23 @@ static void geo_process_translation(struct GraphNodeTranslation *node) {
  static void geo_process_rotation(struct GraphNodeRotation *node) {
      Mat4 mtxf;
      Mtx *mtx = alloc_display_list(sizeof(*mtx));
@@ -1157,7 +1157,7 @@
      if (node->displayList != NULL) {
          geo_append_display_list(node->displayList, node->node.flags >> 8);
      }
-@@ -421,12 +575,16 @@
+@@ -421,12 +575,16 @@ static void geo_process_scale(struct GraphNodeScale *node) {
      UNUSED Mat4 transform;
      Vec3f scaleVec;
      Mtx *mtx = alloc_display_list(sizeof(*mtx));
@@ -1174,7 +1174,7 @@
      if (node->displayList != NULL) {
          geo_append_display_list(node->displayList, node->node.flags >> 8);
      }
-@@ -445,21 +603,30 @@
+@@ -445,21 +603,30 @@ static void geo_process_scale(struct GraphNodeScale *node) {
  static void geo_process_billboard(struct GraphNodeBillboard *node) {
      Vec3f translation;
      Mtx *mtx = alloc_display_list(sizeof(*mtx));
@@ -1205,7 +1205,7 @@
      if (node->displayList != NULL) {
          geo_append_display_list(node->displayList, node->node.flags >> 8);
      }
-@@ -508,13 +675,39 @@
+@@ -508,13 +675,40 @@ static void geo_process_generated_list(struct GraphNodeGenerated *node) {
   */
  static void geo_process_background(struct GraphNodeBackground *node) {
      Gfx *list = NULL;
@@ -1239,14 +1239,15 @@
 +        vec3f_copy(gLakituState.pos, posCopy);
 +        vec3f_copy(gLakituState.focus, focusCopy);
      }
-     if (list != 0) {
++
+     if (list != NULL) {
 -        geo_append_display_list((void *) VIRTUAL_TO_PHYSICAL(list), node->fnNode.node.flags >> 8);
 +        geo_append_display_list2((void *) VIRTUAL_TO_PHYSICAL(list),
 +                                 (void *) VIRTUAL_TO_PHYSICAL(listInterpolated), node->fnNode.node.flags >> 8);
      } else if (gCurGraphNodeMasterList != NULL) {
  #ifndef F3DEX_GBI_2E
          Gfx *gfxStart = alloc_display_list(sizeof(Gfx) * 7);
-@@ -539,61 +732,81 @@
+@@ -539,61 +733,81 @@ static void geo_process_background(struct GraphNodeBackground *node) {
      }
  }
  
@@ -1362,7 +1363,7 @@
      if (node->displayList != NULL) {
          geo_append_display_list(node->displayList, node->node.flags >> 8);
      }
-@@ -625,6 +838,17 @@
+@@ -625,6 +839,17 @@ void geo_set_animation_globals(struct AnimInfo *node, s32 hasAnimation) {
      }
  
      gCurrAnimFrame = node->animFrame;
@@ -1380,7 +1381,7 @@
      gCurAnimEnabled = (anim->flags & ANIM_FLAG_5) == 0;
      gCurrAnimAttribute = segmented_to_virtual((void *) anim->index);
      gCurAnimData = segmented_to_virtual((void *) anim->values);
-@@ -643,8 +867,10 @@
+@@ -643,8 +868,10 @@ void geo_set_animation_globals(struct AnimInfo *node, s32 hasAnimation) {
   */
  static void geo_process_shadow(struct GraphNodeShadow *node) {
      Gfx *shadowList;
@@ -1391,7 +1392,7 @@
      Vec3f animOffset;
      f32 objScale;
      f32 shadowScale;
-@@ -652,6 +878,7 @@
+@@ -652,6 +879,7 @@ static void geo_process_shadow(struct GraphNodeShadow *node) {
      f32 cosAng;
      struct GraphNode *geo;
      Mtx *mtx;
@@ -1399,7 +1400,7 @@
  
      if (gCurGraphNodeCamera != NULL && gCurGraphNodeObject != NULL) {
          if (gCurGraphNodeHeldObject != NULL) {
-@@ -690,21 +917,57 @@
+@@ -690,21 +918,57 @@ static void geo_process_shadow(struct GraphNodeShadow *node) {
              }
          }
  
@@ -1446,7 +1447,7 @@
 +            mtxf_to_mtx(mtxInterpolated, gMatStackInterpolated[gMatStackIndex]);
 +            gMatStackInterpolatedFixed[gMatStackIndex] = mtxInterpolated;
 +
-             if (gShadowAboveWaterOrLava == 1) {
+             if (gShadowAboveWaterOrLava == TRUE) {
 -                geo_append_display_list((void *) VIRTUAL_TO_PHYSICAL(shadowList), 4);
 +                geo_append_display_list2((void *) VIRTUAL_TO_PHYSICAL(shadowList),
 +                                         (void *) VIRTUAL_TO_PHYSICAL(shadowListInterpolated), 4);
@@ -1461,7 +1462,7 @@
              }
              gMatStackIndex--;
          }
-@@ -803,28 +1066,87 @@
+@@ -803,28 +1067,87 @@ static s32 obj_is_in_view(struct GraphNodeObject *node, Mat4 matrix) {
      return TRUE;
  }
  
@@ -1482,7 +1483,7 @@
      s32 hasAnimation = (node->header.gfx.node.flags & GRAPH_RENDER_HAS_ANIMATION) != 0;
 +    Vec3f scaleInterpolated;
  
-     if (node->header.gfx.unk18 == gCurGraphNodeRoot->areaIndex) {
+     if (node->header.gfx.areaIndex == gCurGraphNodeRoot->areaIndex) {
          if (node->header.gfx.throwMatrix != NULL) {
              mtxf_mul(gMatStack[gMatStackIndex + 1], *node->header.gfx.throwMatrix,
                       gMatStack[gMatStackIndex]);
@@ -1549,7 +1550,7 @@
          node->header.gfx.cameraToObject[0] = gMatStack[gMatStackIndex][3][0];
          node->header.gfx.cameraToObject[1] = gMatStack[gMatStackIndex][3][1];
          node->header.gfx.cameraToObject[2] = gMatStack[gMatStackIndex][3][2];
-@@ -835,9 +1157,12 @@
+@@ -835,9 +1158,12 @@ static void geo_process_object(struct Object *node) {
          }
          if (obj_is_in_view(&node->header.gfx, gMatStack[gMatStackIndex])) {
              Mtx *mtx = alloc_display_list(sizeof(*mtx));
@@ -1562,7 +1563,7 @@
              if (node->header.gfx.sharedChild != NULL) {
                  gCurGraphNodeObject = (struct GraphNodeObject *) node;
                  node->header.gfx.sharedChild->parent = &node->header.gfx.node;
-@@ -848,11 +1173,16 @@
+@@ -848,11 +1174,16 @@ static void geo_process_object(struct Object *node) {
              if (node->header.gfx.node.children != NULL) {
                  geo_process_node_and_siblings(node->header.gfx.node.children);
              }
@@ -1579,7 +1580,7 @@
      }
  }
  
-@@ -879,6 +1209,8 @@
+@@ -879,6 +1210,8 @@ void geo_process_held_object(struct GraphNodeHeldObject *node) {
      Mat4 mat;
      Vec3f translation;
      Mtx *mtx = alloc_display_list(sizeof(*mtx));
@@ -1588,7 +1589,7 @@
  
  #ifdef F3DEX_GBI_2
      gSPLookAt(gDisplayListHead++, &lookAt);
-@@ -894,6 +1226,14 @@
+@@ -894,6 +1227,14 @@ void geo_process_held_object(struct GraphNodeHeldObject *node) {
          translation[1] = node->translation[1] / 4.0f;
          translation[2] = node->translation[2] / 4.0f;
  
@@ -1603,7 +1604,7 @@
          mtxf_translate(mat, translation);
          mtxf_copy(gMatStack[gMatStackIndex + 1], *gCurGraphNodeObject->throwMatrix);
          gMatStack[gMatStackIndex + 1][3][0] = gMatStack[gMatStackIndex][3][0];
-@@ -902,6 +1242,13 @@
+@@ -902,6 +1243,13 @@ void geo_process_held_object(struct GraphNodeHeldObject *node) {
          mtxf_mul(gMatStack[gMatStackIndex + 1], mat, gMatStack[gMatStackIndex + 1]);
          mtxf_scale_vec3f(gMatStack[gMatStackIndex + 1], gMatStack[gMatStackIndex + 1],
                           node->objNode->header.gfx.scale);
@@ -1617,7 +1618,7 @@
          if (node->fnNode.func != NULL) {
              node->fnNode.func(GEO_CONTEXT_HELD_OBJ, &node->fnNode.node,
                                (struct AllocOnlyPool *) gMatStack[gMatStackIndex + 1]);
-@@ -909,12 +1256,15 @@
+@@ -909,12 +1257,15 @@ void geo_process_held_object(struct GraphNodeHeldObject *node) {
          gMatStackIndex++;
          mtxf_to_mtx(mtx, gMatStack[gMatStackIndex]);
          gMatStackFixed[gMatStackIndex] = mtx;
@@ -1632,8 +1633,8 @@
 +        gGeoTempState.prevFrame = gPrevAnimFrame;
          gCurAnimType = 0;
          gCurGraphNodeHeldObject = (void *) node;
-         if (node->objNode->header.gfx.unk38.curAnim != NULL) {
-@@ -929,6 +1279,7 @@
+         if (node->objNode->header.gfx.animInfo.curAnim != NULL) {
+@@ -929,6 +1280,7 @@ void geo_process_held_object(struct GraphNodeHeldObject *node) {
          gCurAnimTranslationMultiplier = gGeoTempState.translationMultiplier;
          gCurrAnimAttribute = gGeoTempState.attribute;
          gCurAnimData = gGeoTempState.data;
@@ -1641,7 +1642,7 @@
          gMatStackIndex--;
      }
  
-@@ -1050,6 +1401,7 @@
+@@ -1050,6 +1402,7 @@ void geo_process_root(struct GraphNodeRoot *node, Vp *b, Vp *c, s32 clearColor)
      if (node->node.flags & GRAPH_RENDER_ACTIVE) {
          Mtx *initialMatrix;
          Vp *viewport = alloc_display_list(sizeof(*viewport));
@@ -1649,7 +1650,7 @@
  
          gDisplayListHeap = alloc_only_pool_init(main_pool_available() - sizeof(struct AllocOnlyPool),
                                                  MEMORY_POOL_LEFT);
-@@ -1060,7 +1412,12 @@
+@@ -1060,7 +1413,12 @@ void geo_process_root(struct GraphNodeRoot *node, Vp *b, Vp *c, s32 clearColor)
          vec3s_set(viewport->vp.vscale, node->width * 4, node->height * 4, 511);
          if (b != NULL) {
              clear_frame_buffer(clearColor);
@@ -1663,7 +1664,7 @@
              *viewport = *b;
          }
  
-@@ -1068,11 +1425,16 @@
+@@ -1068,11 +1426,16 @@ void geo_process_root(struct GraphNodeRoot *node, Vp *b, Vp *c, s32 clearColor)
              clear_frame_buffer(clearColor);
              make_viewport_clip_rect(c);
          }
@@ -1683,7 +1684,7 @@
          gCurGraphNodeRoot = node;
 --- a/src/game/rendering_graph_node.h
 +++ b/src/game/rendering_graph_node.h
-@@ -28,6 +28,10 @@
+@@ -28,6 +28,10 @@ extern u16 gAreaUpdateCounter;
  #define ANIM_TYPE_ROTATION              5
  
  void geo_process_node_and_siblings(struct GraphNode *firstNode);
@@ -1716,7 +1717,7 @@
  s32 set_and_reset_transition_fade_timer(s8 fadeTimer, u8 transTime) {
      s32 reset = FALSE;
  
-@@ -85,14 +98,29 @@
+@@ -85,6 +98,8 @@ s32 render_fade_transition_into_color(s8 fadeTimer, u8 transTime, struct WarpTra
      return dl_transition_color(fadeTimer, transTime, transData, alpha);
  }
  
@@ -1725,10 +1726,8 @@
  s16 calc_tex_transition_radius(s8 fadeTimer, s8 transTime, struct WarpTransitionData *transData) {
      f32 texRadius = transData->endTexRadius - transData->startTexRadius;
      f32 radiusTime = sTransitionColorFadeCount[fadeTimer] * texRadius / (f32)(transTime - 1);
-     f32 result = transData->startTexRadius + radiusTime;
- 
--    return (s16)(result + 0.5);;
-+    return (s16)(result + 0.5);
+@@ -93,6 +108,19 @@ s16 calc_tex_transition_radius(s8 fadeTimer, s8 transTime, struct WarpTransition
+     return (s16)(result + 0.5);
  }
  
 +#else
@@ -1747,7 +1746,7 @@
  f32 calc_tex_transition_time(s8 fadeTimer, s8 transTime, struct WarpTransitionData *transData) {
      f32 startX = transData->startTexX;
      f32 startY = transData->startTexY;
-@@ -166,6 +194,8 @@
+@@ -166,6 +194,8 @@ void *sTextureTransitionID[] = {
      texture_transition_bowser_half,
  };
  
@@ -1756,7 +1755,7 @@
  s32 render_textured_transition(s8 fadeTimer, s8 transTime, struct WarpTransitionData *transData, s8 texID, s8 transTexType) {
      f32 texTransTime = calc_tex_transition_time(fadeTimer, transTime, transData);
      u16 texTransPos = convert_tex_transition_angle_to_pos(transData);
-@@ -206,6 +236,56 @@
+@@ -206,6 +236,56 @@ s32 render_textured_transition(s8 fadeTimer, s8 transTime, struct WarpTransition
      return set_and_reset_transition_fade_timer(fadeTimer, transTime);
  }
  
@@ -1810,7 +1809,7 @@
 +
 +#endif
 +
- int render_screen_transition(s8 fadeTimer, s8 transType, u8 transTime, struct WarpTransitionData *transData) {
+ s32 render_screen_transition(s8 fadeTimer, s8 transType, u8 transTime, struct WarpTransitionData *transData) {
      switch (transType) {
          case WARP_TRANSITION_FADE_FROM_COLOR:
 --- a/src/menu/intro_geo.c
@@ -1823,9 +1822,9 @@
  #include "game/memory.h"
  #include "game/segment2.h"
  #include "game/segment7.h"
-@@ -68,6 +70,18 @@
- s8 gameOverBackgroundFlipOrder[] = { 0x00, 0x01, 0x02, 0x03, 0x07, 0x0B,
-                                      0x0a, 0x09, 0x08, 0x04, 0x05, 0x06 };
+@@ -36,6 +38,18 @@ static s32 sGameOverTableIndex;
+ static s16 sIntroFrameCounter;
+ static s32 sTmCopyrightAlpha;
  
 +static Gfx *sIntroScalePos;
 +static Vec3f sIntroScale;
@@ -1839,31 +1838,32 @@
 +    }
 +}
 +
- Gfx *geo_title_screen(s32 sp50, struct GraphNode *sp54, UNUSED void *context) {
-     struct GraphNode *graphNode; // sp4c
-     Gfx *displayList;            // sp48
-@@ -78,6 +92,8 @@
-     f32 scaleX;                  // sp34
-     f32 scaleY;                  // sp30
-     f32 scaleZ;                  // sp2c
+ /**
+  * Geo callback to render the "Super Mario 64" logo on the title screen
+  */
+@@ -49,6 +63,8 @@ Gfx *geo_intro_super_mario_64_logo(s32 state, struct GraphNode *node, UNUSED voi
+     f32 scaleX;
+     f32 scaleY;
+     f32 scaleZ;
 +    Vec3f scale;
 +    Vec3f scaleInterpolated;
-     graphNode = sp54;
-     displayList = NULL;
-     displayListIter = NULL;
-@@ -108,7 +124,11 @@
+ 
+     if (state != 1) {
+         sIntroFrameCounter = 0;
+@@ -80,7 +96,12 @@ Gfx *geo_intro_super_mario_64_logo(s32 state, struct GraphNode *node, UNUSED voi
              scaleY = 0.0f;
              scaleZ = 0.0f;
          }
 -        guScale(scaleMat, scaleX, scaleY, scaleZ);
++
 +        vec3f_set(scale, scaleX, scaleY, scaleZ);
 +        interpolate_vectors(scaleInterpolated, sIntroScale, scale);
 +        vec3f_set(sIntroScale, scaleX, scaleY, scaleZ);
 +        guScale(scaleMat, scaleInterpolated[0], scaleInterpolated[1], scaleInterpolated[2]);
-+        sIntroScalePos = displayListIter;
-         gSPMatrix(displayListIter++, scaleMat, G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_PUSH);
-         gSPDisplayList(displayListIter++, &intro_seg7_dl_0700B3A0);
-         gSPPopMatrix(displayListIter++, G_MTX_MODELVIEW);
++        sIntroScalePos = dlIter;
+ 
+         gSPMatrix(dlIter++, scaleMat, G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_PUSH);
+         gSPDisplayList(dlIter++, &intro_seg7_dl_0700B3A0);  // draw model
 --- a/src/pc/gfx/gfx_dxgi.cpp
 +++ b/src/pc/gfx/gfx_dxgi.cpp
 @@ -34,10 +34,10 @@
@@ -1896,7 +1896,7 @@
  const struct {
 --- a/src/pc/gfx/gfx_ps2_wapi.c
 +++ b/src/pc/gfx/gfx_ps2_wapi.c
-@@ -43,8 +43,8 @@
+@@ -43,8 +43,8 @@ static const struct VidMode vid_modes[] = {
  GSGLOBAL *gs_global;
  float gfx_ps2_aspect_ratio = 4.f / 3.f;
  
@@ -1909,7 +1909,7 @@
  static volatile u32 vsync_count;
 --- a/src/pc/gfx/gfx_sdl2.c
 +++ b/src/pc/gfx/gfx_sdl2.c
-@@ -139,7 +139,7 @@
+@@ -139,7 +139,7 @@ int test_vsync(void) {
      float average = 4.0 * 1000.0 / (end - start);
  
      vsync_enabled = 1;
@@ -1918,7 +1918,7 @@
          SDL_GL_SetSwapInterval(1);
      } else if (average > 57 && average < 63) {
          SDL_GL_SetSwapInterval(2);
-@@ -149,6 +149,13 @@
+@@ -149,6 +149,13 @@ int test_vsync(void) {
          SDL_GL_SetSwapInterval(4);
      } else {
          vsync_enabled = 0;
@@ -1932,7 +1932,7 @@
      }
  }
  
-@@ -273,8 +280,8 @@
+@@ -273,8 +280,8 @@ static bool gfx_sdl_start_frame(void) {
  }
  
  static void sync_framerate_with_timer(void) {
@@ -1952,8 +1952,8 @@
 +# include "ps2_memcard_ui.h"
  #endif
  
- OSMesg D_80339BEC;
-@@ -91,12 +92,20 @@
+ OSMesg gMainReceivedMesg;
+@@ -91,12 +92,20 @@ void exec_display_list(struct SPTask *spTask) {
  
  static s16 audio_buffer[SAMPLES_HIGH * 2 * 2];
  
@@ -1978,7 +1978,7 @@
  
  static bool audio_sync;
  static float audio_gain = 1.f;
-@@ -132,8 +141,8 @@
+@@ -132,8 +141,8 @@ static inline void audio_frame(void) {
  #ifdef TARGET_PS2
      if (fade_out && audio_gain <= 0.f) {
          // faded out: send silence without advancing the audio engine, then hand the IOP over
@@ -1989,7 +1989,7 @@
          if (++audio_pad >= AUDIO_PAD_FRAMES) {
              audio_ps2_fill_silence();
              ps2_memcard_iop_grant();
-@@ -142,7 +151,7 @@
+@@ -142,7 +151,7 @@ static inline void audio_frame(void) {
      }
  #endif
  
@@ -1998,7 +1998,7 @@
          create_next_audio_buffer(audio_buffer + i * (num_audio_samples * 2), num_audio_samples);
      }
  
-@@ -152,19 +161,65 @@
+@@ -152,19 +161,65 @@ static inline void audio_frame(void) {
      if (g1 < 0.f) g1 = 0.f;
      if (g1 > 1.f) g1 = 1.f;
      if (g0 < 1.f || g1 < 1.f)
@@ -2045,7 +2045,7 @@
 +        // the boot screen doesn't run render_game, so there's nothing to interpolate
 +        if (!ps2_memcard_ui_boot_active())
 +            patch_interpolations();
-+        send_display_list(gGfxSPTask);
++        exec_display_list(gGfxSPTask);
 +    }
 +    interp_frame = !interp_frame;
 +    audio_frame();
@@ -2060,13 +2060,13 @@
 +
 +    gfx_start_frame();
 +    patch_interpolations();
-+    send_display_list(gGfxSPTask);
++    exec_display_list(gGfxSPTask);
 +    gfx_end_frame();
 +#endif
  }
  
  #ifdef TARGET_WEB
-@@ -239,7 +294,12 @@
+@@ -239,7 +294,12 @@ static void on_fullscreen_changed(bool is_now_fullscreen) {
  }
  
  void main_func(void) {
@@ -2081,7 +2081,7 @@
      prepare_IOP();
 --- a/src/pc/ps2_memcard_ui.c
 +++ b/src/pc/ps2_memcard_ui.c
-@@ -313,6 +313,10 @@
+@@ -313,6 +313,10 @@ static void boot_set_state(const enum BootState state) {
      boot_timer = 0;
  }
  
